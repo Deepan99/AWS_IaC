@@ -16,7 +16,7 @@ iptables -I INPUT -p tcp --dport 443 -j ACCEPT
 iptables -I INPUT -p tcp --dport 3128 -j ACCEPT
 iptables-save > /etc/sysconfig/iptables
 
-# 3. Configure NGINX Ingress Reverse Proxy with Route 53 Service Discovery
+# 3. Configure NGINX Ingress Reverse Proxy with Dynamic Runtime DNS Resolution
 cat << 'NGINX_EOF' > /etc/nginx/nginx.conf
 user nginx;
 worker_processes auto;
@@ -35,23 +35,22 @@ http {
     access_log /var/log/nginx/access.log main;
     sendfile on;
     keepalive_timeout 65;
+    types_hash_max_size 4096;
     include /etc/nginx/mime.types;
     default_type application/octet-stream;
 
-    # AWS VPC DNS Resolver
-    resolver 10.0.0.2 169.254.169.253 valid=10s;
-
-    upstream spoke1_backend {
-        server spoke1.corp.internal:80 max_fails=3 fail_timeout=10s;
-        keepalive 32;
-    }
+    # AWS VPC DNS Resolver (re-resolves every 10s at runtime)
+    resolver 10.0.0.2 169.254.169.253 valid=10s ipv6=off;
 
     server {
         listen 80 default_server;
         server_name _;
 
+        # Dynamic variable forces NGINX to re-resolve DNS dynamically
+        set $backend_service "http://spoke1.corp.internal:80";
+
         location / {
-            proxy_pass http://spoke1_backend;
+            proxy_pass $backend_service;
             proxy_http_version 1.1;
             proxy_set_header Connection "";
             proxy_set_header Host $host;
@@ -65,6 +64,7 @@ http {
 }
 NGINX_EOF
 
+systemctl daemon-reload
 systemctl enable --now nginx
 
 # 4. Configure Squid Egress Firewall Whitelist
