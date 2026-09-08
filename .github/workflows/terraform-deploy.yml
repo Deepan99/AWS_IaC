@@ -4,13 +4,44 @@ on:
   pull_request:
     types: [opened, synchronize, reopened, closed]
     branches: [master]
+  push:
+    branches:
+      - 'feature/**'
   workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write
   pull-requests: write
 
 jobs:
+  auto-create-pr:
+    name: Auto Create PR
+    runs-on: ubuntu-latest
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/heads/feature/')
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Create Pull Request
+        uses: peter-evans/create-pull-request@v6
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          branch: ${{ github.ref_name }}
+          base: master
+          title: "Deploy infrastructure from ${{ github.ref_name }}"
+          body: |
+            ## Infrastructure Deployment
+            This PR was automatically created when changes were pushed to the feature branch.
+            
+            ### Changes
+            - Terraform configuration updates for deployment
+            
+            ### Next Steps
+            1. Review the terraform plan in the comments below
+            2. Configure GitHub Secrets (AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY, AWS_REGION)
+            3. Approve and merge this PR to deploy the infrastructure
+          draft: false
+
   terraform-plan:
     name: Terraform Plan
     runs-on: ubuntu-latest
