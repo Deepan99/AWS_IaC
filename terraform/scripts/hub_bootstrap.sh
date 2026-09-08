@@ -57,7 +57,7 @@ openssl req -x509 -nodes -days 365 -newkey rsa:2048 \
 chmod 600 /etc/pki/tls/private/hub.key
 chmod 644 /etc/pki/tls/certs/hub.crt
 
-# 4. Configure NGINX Ingress Reverse Proxy with HTTPS (Port 443) and Port 80 Redirect
+# 4. Configure NGINX Ingress Reverse Proxy with HTTPS (Port 443), WAF Shield, and Rate Limiting
 cat << 'NGINX_EOF' > /etc/nginx/nginx.conf
 user nginx;
 worker_processes auto;
@@ -86,6 +86,16 @@ http {
     # AWS VPC DNS Resolver
     resolver 10.0.0.2 169.254.169.253 valid=10s ipv6=off;
 
+    # WAF Rate Limiting Zone (10 req/s, Burst=15)
+    limit_req_zone $binary_remote_addr zone=waf_rate_limit:10m rate=10r/s;
+    limit_req_status 429;
+
+    # WAF Bad Bot & Scanner Blocklist
+    map $http_user_agent $bad_bot {
+        default 0;
+        ~*(sqlmap|nikto|wpscan|dirbuster|acunetix|masscan|nessus|nmap|zgrab|morfeus) 1;
+    }
+
     # Upstream Production HA Cluster (Active-Active Round Robin + Auto-Failover)
     upstream spoke1_prod_cluster {
         server node1.prod.corp.internal:80 max_fails=2 fail_timeout=5s;
@@ -100,7 +110,7 @@ http {
         return 301 https://$host$request_uri;
     }
 
-    # Port 443 -> TLS 1.2 & 1.3 Terminated Ingress Gateway
+    # Port 443 -> TLS 1.2 & 1.3 Terminated Ingress Gateway + WAF Shield
     server {
         listen 443 ssl default_server;
         server_name _;
@@ -119,18 +129,40 @@ http {
         add_header X-XSS-Protection "1; mode=block" always;
         add_header Strict-Transport-Security "max-age=31536000; includeSubDomains" always;
 
+        # Apply Global Rate Limiting
+        limit_req zone=waf_rate_limit burst=15 nodelay;
+
+        # Block Malicious User-Agents
+        if ($bad_bot) {
+            return 403;
+        }
+
+        # Block Exploit Probes
+        location ~* (\.env|\.git|\.aws|\.\./|union.*select|eval\() {
+            default_type text/html;
+            return 403 '<!DOCTYPE html><html><head><title>403 Forbidden</title></head><body style="background:#0f172a;color:#f8fafc;font-family:sans-serif;text-align:center;padding:50px;"><h1>🚫 403 Forbidden: WAF Threat Blocked</h1><p>The Zero-Cost WAF Shield blocked this request.</p></body></html>';
+        }
+
+        # Custom 429 Rate Limit Exceeded Page
+        error_page 429 = @rate_limited;
+        location @rate_limited {
+            default_type text/html;
+            return 429 '<!DOCTYPE html><html><head><title>429 Too Many Requests</title></head><body style="background:#0f172a;color:#f8fafc;font-family:sans-serif;text-align:center;padding:50px;"><h1>⚡ 429 Rate Limit Exceeded</h1><p>Anti-DDoS WAF active (Max 10 req/s). Please slow down.</p></body></html>';
+        }
+
         # Gateway Portal (Root)
         location = / {
             default_type text/html;
             return 200 '<!DOCTYPE html>
 <html>
 <head>
-  <title>Enterprise Cloud Gateway (HTTPS)</title>
+  <meta charset="utf-8">
+  <title>Enterprise Cloud Gateway (HTTPS + WAF)</title>
   <style>
     body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background: #0f172a; color: #f8fafc; display: flex; justify-content: center; align-items: center; min-height: 100vh; margin: 0; }
     .card { background: #1e293b; padding: 2.5rem; border-radius: 1rem; box-shadow: 0 20px 25px -5px rgba(0,0,0,0.5); border: 1px solid #334155; max-width: 600px; width: 100%; }
     .badge { display: inline-block; padding: 0.35rem 0.85rem; border-radius: 9999px; font-weight: 700; font-size: 0.875rem; background-color: #3b82f6; color: #ffffff; text-transform: uppercase; }
-    .ssl-badge { display: inline-block; padding: 0.35rem 0.85rem; border-radius: 9999px; font-weight: 700; font-size: 0.875rem; background-color: #10b981; color: #ffffff; text-transform: uppercase; margin-left: 0.5rem; }
+    .waf-badge { display: inline-block; padding: 0.35rem 0.85rem; border-radius: 9999px; font-weight: 700; font-size: 0.875rem; background-color: #10b981; color: #ffffff; text-transform: uppercase; margin-left: 0.5rem; }
     h1 { margin-top: 1rem; font-size: 1.75rem; color: #60a5fa; }
     p { color: #94a3b8; font-size: 0.95rem; }
     .btn-group { display: flex; flex-direction: column; gap: 0.75rem; margin-top: 1.5rem; }
@@ -148,24 +180,24 @@ http {
   <div class="card">
     <div>
       <span class="badge">Central Hub Router</span>
-      <span class="ssl-badge">🔒 TLS 1.3 Encrypted</span>
+      <span class="waf-badge">🛡️ WAF & Anti-DDoS Active</span>
     </div>
     <h1>🏢 Enterprise Service Gateway</h1>
-    <p>Zero-Cost Multi-VPC Hub-and-Spoke Routing Architecture with End-to-End SSL/TLS Termination.</p>
+    <p>Zero-Cost Multi-VPC Hub-and-Spoke Routing Architecture with End-to-End SSL/TLS Termination & WAF Protection.</p>
     
     <div class="btn-group">
       <a href="/prod/" class="btn btn-prod">
         <span>🚀 Spoke 1: Production HA Cluster</span>
-        <span class="tag tag-prod">Node A + Node B (HTTPS)</span>
+        <span class="tag tag-prod">Node A + Node B (WAF Protected)</span>
       </a>
       <a href="/dev/" class="btn btn-dev">
         <span>🧪 Spoke 2: Development Web App</span>
-        <span class="tag tag-dev">Isolated Spoke (HTTPS)</span>
+        <span class="tag tag-dev">Isolated Spoke (WAF Protected)</span>
       </a>
     </div>
 
     <div class="footer">
-      AWS Zero-Cost Enterprise Hub-and-Spoke Architecture • Strict 301 HTTPS Enforced
+      AWS Zero-Cost Enterprise Hub-and-Spoke Architecture • Strict 301 HTTPS & WAF Enforced
     </div>
   </div>
 </body>

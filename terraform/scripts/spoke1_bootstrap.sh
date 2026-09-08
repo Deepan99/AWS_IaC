@@ -6,6 +6,7 @@ cat << 'HTML_EOF' > /var/www/app/index.html
 <!DOCTYPE html>
 <html>
 <head>
+  <meta charset="utf-8">
   <title>Spoke 1 Production Server</title>
   <style>
     body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background: #0f172a; color: #f8fafc; text-align: center; padding: 50px 20px; }
