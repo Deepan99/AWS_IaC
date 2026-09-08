@@ -9,3 +9,4 @@ spoke1_private_subnet_cidr = "10.1.1.0/24"
 spoke2_vpc_cidr            = "10.2.0.0/16"
 spoke2_private_subnet_cidr = "10.2.1.0/24"
 private_domain_name        = "corp.internal"
+# Deployment configuration - ready for CI/CD
