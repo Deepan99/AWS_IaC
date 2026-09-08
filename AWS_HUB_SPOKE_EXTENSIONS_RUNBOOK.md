@@ -106,45 +106,69 @@
 - **Problem**: Hardcoding private IP addresses (`10.1.1.124`) breaks easily when instances are replaced.
 - **Solution**: Amazon Route 53 Private Hosted Zone `corp.internal` associated across Hub, Spoke 1, and Spoke 2 VPCs.
 - **Records**:
-  - `spoke1.corp.internal` ➔ `10.1.1.124`
-  - `hub.corp.internal` ➔ `10.0.1.11`
-  - `proxy.corp.internal` ➔ `10.0.1.11`
+  - `spoke1.corp.internal` ➔ `10.1.1.160`
+  - `spoke2.corp.internal` ➔ `10.2.1.x`
+  - `hub.corp.internal` ➔ `10.0.1.52`
+  - `proxy.corp.internal` ➔ `10.0.1.52`
 - **Service Discovery**: Hub NGINX and Spoke workloads dynamically resolve internal hostnames with sub-millisecond response.
 
 ---
 
-## 🧪 Quick Health Check Commands for Tomorrow
-
-### 1. Check Hub Instance Status:
-```powershell
-ssh -i "<path-to-your-key-pair>.pem" ec2-user@13.234.204.131
-```
-> **Note**: Replace `<path-to-your-key-pair>.pem` with the actual path to your EC2 key pair file.
-Inside Hub:
-```bash
-sudo systemctl status nginx --no-pager
-sudo systemctl status squid --no-pager
-```
-
-### 2. Check Spoke 1 App Status (from Hub):
-```bash
-ssh 10.1.1.124
-sudo systemctl status spoke-app --no-pager
-```
-
-### 3. Open in Laptop Browser:
-👉 **`http://spoke1.corp.internal`** or **`http://13.234.204.131`**
+### 📊 Extension 4: Centralized VPC Flow Logs & Security Telemetry (CloudWatch Logs)
+- **Problem**: In an enterprise multi-VPC architecture, lack of network packet visibility prevents incident response and threat detection.
+- **Solution**: Centralized CloudWatch Log Group `/aws/vpc/hub-spoke-flowlogs` (7-day cost-optimized retention) capturing network flows across Hub, Spoke 1 Prod, and Spoke 2 Dev VPCs.
+- **Role**: `VPCFlowLogsDeliveryRole` delivering packet-level ACCEPT/REJECT telemetry.
 
 ---
 
-## 🔮 Agenda for Tomorrow: Next Extensions
+### 🚦 Extension 6: Layer-7 Multi-Environment Ingress Routing & Gateway Portal
+- **Problem**: Multiple internal spoke environments (Prod vs Dev) need public access without creating multiple internet gateways, public IPs, or paying for multiple ALBs.
+- **Solution**: Hub NGINX Reverse Proxy performs path-based Layer-7 routing with zero lateral movement between environments:
+  - `http://<Hub-IP>/` ➔ Central Service Gateway Portal
+  - `http://<Hub-IP>/prod/` ➔ Proxied to Spoke 1 Prod App (`spoke1.corp.internal:80`)
+  - `http://<Hub-IP>/dev/` ➔ Proxied to Spoke 2 Dev App (`spoke2.corp.internal:80`)
+- **Security Rule**: Spoke 1 (Prod) and Spoke 2 (Dev) remain completely air-gapped from each other.
 
-1. **Extension 4: Centralized VPC Flow Logs & Security Telemetry (CloudWatch Insights)**
-   - Capture, filter, and alert on rejected/suspicious cross-VPC traffic.
-2. **Extension 5: Spoke-to-Spoke Transitive Routing via Hub NAT Router**
-   - Enable private communication between Spoke 1 (`10.1.0.0/16`) and Spoke 2 (`10.2.0.0/16`) without paying for Transit Gateway ($36/mo).
-3. **Extension 6: Multi-Target Load Balancing & Auto-Failover**
-   - Deploy `Spoke2-App` and configure NGINX active/standby or round-robin failover.
+---
+
+### 🔒 Extension 7: Zero-Trust Management with AWS Systems Manager (SSM) & Port 22 Lockdown
+- **Problem**: Inbound Port 22 (SSH) open to the internet (`0.0.0.0/0`) is the #1 attack vector for automated brute-force attacks and requires risky `.pem` private key management.
+- **Solution**:
+  1. EC2 instances managed via AWS Systems Manager (`EC2-SSM-Managed-Role` with `AmazonSSMManagedInstanceCore`).
+  2. **100% Inbound Port 22 (SSH) Revoked** across Hub, Spoke 1, and Spoke 2 Security Groups.
+  3. Hub Security Group allows only HTTP (80), HTTPS (443), and Squid (3128).
+  4. Spoke Security Groups allow only HTTP (80) and ICMP strictly from the Hub VPC (`10.0.0.0/16`).
+  5. Administrators connect via 1-click browser shell terminal in EC2 Console with full IAM governance and zero open management ports.
+
+---
+
+## 🧪 Verification & Health Check Commands
+
+### 1. Web Endpoints Check:
+```bash
+curl -I http://13.207.69.181/       # ➔ HTTP 200 OK (Gateway Portal)
+curl -I http://13.207.69.181/prod/  # ➔ HTTP 200 OK (Spoke 1 Prod App)
+curl -I http://13.207.69.181/dev/   # ➔ HTTP 200 OK (Spoke 2 Dev App)
+```
+
+### 2. Zero-Trust SSH Lockdown Check:
+```powershell
+# This command should immediately TIMEOUT or REJECT because Port 22 is completely closed:
+ssh -i "<key>.pem" ec2-user@13.207.69.181
+```
+
+### 3. Systems Manager (SSM) 1-Click Access:
+👉 Go to **EC2 Console** ➔ Select any instance ➔ Click **Connect** ➔ **Session Manager** ➔ **Connect**.
+
+---
+
+## 🔮 Agenda: Next Extensions
+
+1. **Extension 8: High Availability (HA) Backend & Load Balancing with Auto-Failover**
+   - Deploy dual backend instances in Spoke 1 (`Spoke1-App-A` and `Spoke1-App-B`).
+   - Configure NGINX upstream with round-robin load balancing and health checks / auto-failover.
+2. **GitOps & Pipeline Quality Gates**:
+   - Merge `feat/enterprise-gitops` to `master` and verify automatic CI/CD deployment on commit.
 
 ---
 

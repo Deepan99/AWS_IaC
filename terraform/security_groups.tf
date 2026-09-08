@@ -2,20 +2,11 @@
 # SECURITY GROUPS & FIREWALL RULES
 # ==============================================================================
 
-# Hub Security Group (Ingress Proxy, Squid Egress, SSH)
+# Hub Security Group (Ingress Proxy, Squid Egress - Zero Port 22 Open)
 resource "aws_security_group" "hub_sg" {
   name        = "Hub-NAT-Router-SG"
-  description = "Hub Ingress Reverse Proxy, Squid Egress, and Management"
+  description = "Hub Ingress Reverse Proxy, Squid Egress, and Zero-Trust SSM Management"
   vpc_id      = aws_vpc.hub.id
-
-  # SSH Management
-  ingress {
-    description = "SSH Administration"
-    from_port   = 22
-    to_port     = 22
-    protocol    = "tcp"
-    cidr_blocks = ["0.0.0.0/0"]
-  }
 
   # Ingress Proxy (Zero-Cost ALB)
   ingress {
@@ -56,17 +47,25 @@ resource "aws_security_group" "hub_sg" {
   }
 }
 
-# Spoke 1 Prod Security Group
+# Spoke 1 Prod Security Group (Least-Privilege HTTP & ICMP from Hub)
 resource "aws_security_group" "spoke1_sg" {
   name        = "Spoke1-Prod-SG"
-  description = "Allow all traffic exclusively from Hub VPC"
+  description = "Allow HTTP and ICMP exclusively from Hub VPC"
   vpc_id      = aws_vpc.spoke1.id
 
   ingress {
-    description = "Allow All Inbound from Hub VPC"
-    from_port   = 0
-    to_port     = 0
-    protocol    = "-1"
+    description = "Allow HTTP from Hub NGINX Reverse Proxy"
+    from_port   = 80
+    to_port     = 80
+    protocol    = "tcp"
+    cidr_blocks = [var.hub_vpc_cidr]
+  }
+
+  ingress {
+    description = "Allow ICMP Ping from Hub for Diagnostics"
+    from_port   = -1
+    to_port     = -1
+    protocol    = "icmp"
     cidr_blocks = [var.hub_vpc_cidr]
   }
 
@@ -83,17 +82,25 @@ resource "aws_security_group" "spoke1_sg" {
   }
 }
 
-# Spoke 2 Dev Security Group
+# Spoke 2 Dev Security Group (Least-Privilege HTTP & ICMP from Hub)
 resource "aws_security_group" "spoke2_sg" {
   name        = "Spoke2-Dev-SG"
-  description = "Allow all traffic exclusively from Hub VPC"
+  description = "Allow HTTP and ICMP exclusively from Hub VPC"
   vpc_id      = aws_vpc.spoke2.id
 
   ingress {
-    description = "Allow All Inbound from Hub VPC"
-    from_port   = 0
-    to_port     = 0
-    protocol    = "-1"
+    description = "Allow HTTP from Hub NGINX Reverse Proxy"
+    from_port   = 80
+    to_port     = 80
+    protocol    = "tcp"
+    cidr_blocks = [var.hub_vpc_cidr]
+  }
+
+  ingress {
+    description = "Allow ICMP Ping from Hub for Diagnostics"
+    from_port   = -1
+    to_port     = -1
+    protocol    = "icmp"
     cidr_blocks = [var.hub_vpc_cidr]
   }
 
