@@ -142,12 +142,24 @@
 
 ---
 
+### ⚡ Extension 8: High Availability (HA) Backend & Load Balancing with Auto-Failover
+- **Problem**: Single point of failure (SPOF) in Spoke 1 Prod — if instance `10.1.1.160` fails or reboots, production is offline ($0 ALB alternative needed).
+- **Solution**:
+  1. Dual redundant backend instances deployed in Spoke 1 Prod:
+     - **Node A**: `10.1.1.160` (`node1.prod.corp.internal`)
+     - **Node B**: `10.1.1.188` (`node2.prod.corp.internal`)
+  2. Hub NGINX Upstream Cluster (`spoke1_prod_cluster`) configured for **Active-Active Round Robin** load balancing.
+  3. **Auto-Failover with Zero Downtime**: Passive health checks (`max_fails=2 fail_timeout=5s`). If Node A is offline, NGINX instantly routes 100% of `/prod/` traffic to Node B with 0 dropped requests.
+
+---
+
 ## 🧪 Verification & Health Check Commands
 
-### 1. Web Endpoints Check:
+### 1. Web Endpoints & HA Round Robin Check:
 ```bash
+# Querying /prod/ repeatedly alternates between Node A and Node B:
+curl -s http://13.207.69.181/prod/ | grep "Node"
 curl -I http://13.207.69.181/       # ➔ HTTP 200 OK (Gateway Portal)
-curl -I http://13.207.69.181/prod/  # ➔ HTTP 200 OK (Spoke 1 Prod App)
 curl -I http://13.207.69.181/dev/   # ➔ HTTP 200 OK (Spoke 2 Dev App)
 ```
 
@@ -159,16 +171,6 @@ ssh -i "<key>.pem" ec2-user@13.207.69.181
 
 ### 3. Systems Manager (SSM) 1-Click Access:
 👉 Go to **EC2 Console** ➔ Select any instance ➔ Click **Connect** ➔ **Session Manager** ➔ **Connect**.
-
----
-
-## 🔮 Agenda: Next Extensions
-
-1. **Extension 8: High Availability (HA) Backend & Load Balancing with Auto-Failover**
-   - Deploy dual backend instances in Spoke 1 (`Spoke1-App-A` and `Spoke1-App-B`).
-   - Configure NGINX upstream with round-robin load balancing and health checks / auto-failover.
-2. **GitOps & Pipeline Quality Gates**:
-   - Merge `feat/enterprise-gitops` to `master` and verify automatic CI/CD deployment on commit.
 
 ---
 

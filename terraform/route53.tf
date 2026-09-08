@@ -33,6 +33,30 @@ resource "aws_route53_record" "spoke1_record" {
   records = [aws_instance.spoke1_app.private_ip]
 }
 
+resource "aws_route53_record" "node1_record" {
+  zone_id = aws_route53_zone.internal.id
+  name    = "node1.prod.${var.private_domain_name}"
+  type    = "A"
+  ttl     = 10
+  records = [aws_instance.spoke1_app.private_ip]
+}
+
+resource "aws_route53_record" "node2_record" {
+  zone_id = aws_route53_zone.internal.id
+  name    = "node2.prod.${var.private_domain_name}"
+  type    = "A"
+  ttl     = 10
+  records = [aws_instance.spoke1_app_b.private_ip]
+}
+
+resource "aws_route53_record" "spoke2_record" {
+  zone_id = aws_route53_zone.internal.id
+  name    = "spoke2.${var.private_domain_name}"
+  type    = "A"
+  ttl     = 60
+  records = [aws_instance.spoke2_app.private_ip]
+}
+
 resource "aws_route53_record" "hub_record" {
   zone_id = aws_route53_zone.internal.id
   name    = "hub.${var.private_domain_name}"
@@ -48,3 +72,4 @@ resource "aws_route53_record" "proxy_record" {
   ttl     = 60
   records = [aws_instance.hub_router.private_ip]
 }
+
