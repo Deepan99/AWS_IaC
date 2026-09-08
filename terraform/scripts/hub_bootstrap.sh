@@ -16,7 +16,48 @@ iptables -I INPUT -p tcp --dport 443 -j ACCEPT
 iptables -I INPUT -p tcp --dport 3128 -j ACCEPT
 iptables-save > /etc/sysconfig/iptables
 
-# 3. Configure NGINX Ingress Reverse Proxy with HA Upstream Load Balancing Cluster
+# 3. Generate High-Grade SSL/TLS Certificate for Ingress Gateway
+mkdir -p /etc/pki/tls/certs /etc/pki/tls/private
+
+cat << 'SSL_CONF' > /tmp/openssl_san.cnf
+[req]
+default_bits = 2048
+prompt = no
+default_md = sha256
+distinguished_name = dn
+req_extensions = req_ext
+
+[dn]
+C = IN
+ST = Maharashtra
+L = Mumbai
+O = Enterprise Cloud
+OU = Network Security
+CN = 13.207.69.181
+
+[req_ext]
+subjectAltName = @alt_names
+
+[alt_names]
+IP.1 = 13.207.69.181
+IP.2 = 10.0.1.52
+DNS.1 = hub.corp.internal
+DNS.2 = proxy.corp.internal
+DNS.3 = spoke1.corp.internal
+DNS.4 = spoke2.corp.internal
+DNS.5 = *.corp.internal
+SSL_CONF
+
+openssl req -x509 -nodes -days 365 -newkey rsa:2048 \
+  -keyout /etc/pki/tls/private/hub.key \
+  -out /etc/pki/tls/certs/hub.crt \
+  -config /tmp/openssl_san.cnf \
+  -extensions req_ext
+
+chmod 600 /etc/pki/tls/private/hub.key
+chmod 644 /etc/pki/tls/certs/hub.crt
+
+# 4. Configure NGINX Ingress Reverse Proxy with HTTPS (Port 443) and Port 80 Redirect
 cat << 'NGINX_EOF' > /etc/nginx/nginx.conf
 user nginx;
 worker_processes auto;
@@ -32,6 +73,7 @@ http {
     log_format main '$remote_addr - $remote_user [$time_local] "$request" '
                     '$status $body_bytes_sent "$http_referer" '
                     '"$http_user_agent" "$http_x_forwarded_for" '
+                    'ssl_proto: $ssl_protocol cipher: $ssl_cipher '
                     'upstream: $upstream_addr status: $upstream_status response_time: $upstream_response_time';
     access_log /var/log/nginx/access.log main;
     sendfile on;
@@ -51,9 +93,31 @@ http {
         keepalive 32;
     }
 
+    # Port 80 -> Strict 301 Permanent Redirect to HTTPS
     server {
         listen 80 default_server;
         server_name _;
+        return 301 https://$host$request_uri;
+    }
+
+    # Port 443 -> TLS 1.2 & 1.3 Terminated Ingress Gateway
+    server {
+        listen 443 ssl default_server;
+        server_name _;
+
+        ssl_certificate /etc/pki/tls/certs/hub.crt;
+        ssl_certificate_key /etc/pki/tls/private/hub.key;
+
+        ssl_protocols TLSv1.2 TLSv1.3;
+        ssl_prefer_server_ciphers on;
+        ssl_ciphers HIGH:!aNULL:!MD5:!3DES:!CAMELLIA:!AES128;
+        ssl_session_cache shared:SSL:10m;
+        ssl_session_timeout 10m;
+
+        add_header X-Frame-Options "SAMEORIGIN" always;
+        add_header X-Content-Type-Options "nosniff" always;
+        add_header X-XSS-Protection "1; mode=block" always;
+        add_header Strict-Transport-Security "max-age=31536000; includeSubDomains" always;
 
         # Gateway Portal (Root)
         location = / {
@@ -61,12 +125,12 @@ http {
             return 200 '<!DOCTYPE html>
 <html>
 <head>
-  <title>Enterprise Cloud Gateway</title>
+  <title>Enterprise Cloud Gateway (HTTPS)</title>
   <style>
     body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background: #0f172a; color: #f8fafc; display: flex; justify-content: center; align-items: center; min-height: 100vh; margin: 0; }
     .card { background: #1e293b; padding: 2.5rem; border-radius: 1rem; box-shadow: 0 20px 25px -5px rgba(0,0,0,0.5); border: 1px solid #334155; max-width: 600px; width: 100%; }
     .badge { display: inline-block; padding: 0.35rem 0.85rem; border-radius: 9999px; font-weight: 700; font-size: 0.875rem; background-color: #3b82f6; color: #ffffff; text-transform: uppercase; }
-    .ha-badge { display: inline-block; padding: 0.35rem 0.85rem; border-radius: 9999px; font-weight: 700; font-size: 0.875rem; background-color: #10b981; color: #ffffff; text-transform: uppercase; margin-left: 0.5rem; }
+    .ssl-badge { display: inline-block; padding: 0.35rem 0.85rem; border-radius: 9999px; font-weight: 700; font-size: 0.875rem; background-color: #10b981; color: #ffffff; text-transform: uppercase; margin-left: 0.5rem; }
     h1 { margin-top: 1rem; font-size: 1.75rem; color: #60a5fa; }
     p { color: #94a3b8; font-size: 0.95rem; }
     .btn-group { display: flex; flex-direction: column; gap: 0.75rem; margin-top: 1.5rem; }
@@ -84,24 +148,24 @@ http {
   <div class="card">
     <div>
       <span class="badge">Central Hub Router</span>
-      <span class="ha-badge">HA Cluster Active</span>
+      <span class="ssl-badge">🔒 TLS 1.3 Encrypted</span>
     </div>
     <h1>🏢 Enterprise Service Gateway</h1>
-    <p>Zero-Cost Multi-VPC Hub-and-Spoke Routing Architecture with High-Availability Load Balancing.</p>
+    <p>Zero-Cost Multi-VPC Hub-and-Spoke Routing Architecture with End-to-End SSL/TLS Termination.</p>
     
     <div class="btn-group">
       <a href="/prod/" class="btn btn-prod">
-        <span>🚀 Spoke 1: Production Web App (HA Cluster)</span>
-        <span class="tag tag-prod">Node A + Node B (Load Balanced)</span>
+        <span>🚀 Spoke 1: Production HA Cluster</span>
+        <span class="tag tag-prod">Node A + Node B (HTTPS)</span>
       </a>
       <a href="/dev/" class="btn btn-dev">
         <span>🧪 Spoke 2: Development Web App</span>
-        <span class="tag tag-dev">Isolated Spoke (10.2.1.0/24)</span>
+        <span class="tag tag-dev">Isolated Spoke (HTTPS)</span>
       </a>
     </div>
 
     <div class="footer">
-      AWS Zero-Cost Enterprise Hub-and-Spoke Architecture • Secured with Zero-Trust SSM
+      AWS Zero-Cost Enterprise Hub-and-Spoke Architecture • Strict 301 HTTPS Enforced
     </div>
   </div>
 </body>
@@ -116,6 +180,7 @@ http {
             proxy_set_header Host $host;
             proxy_set_header X-Real-IP $remote_addr;
             proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+            proxy_set_header X-Forwarded-Proto https;
             proxy_next_upstream error timeout invalid_header http_500 http_502 http_503 http_504;
             proxy_connect_timeout 2s;
             proxy_read_timeout 5s;
@@ -130,6 +195,7 @@ http {
             proxy_set_header Host $host;
             proxy_set_header X-Real-IP $remote_addr;
             proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+            proxy_set_header X-Forwarded-Proto https;
         }
     }
 }
