@@ -1,30 +1,53 @@
-# Terraform files
-.terraform/
-.terraform.lock.hcl
+# ==============================================================================
+# Enterprise Terraform .gitignore
+# ==============================================================================
+
+# Compiled / Local Terraform State (DO NOT COMMIT)
 *.tfstate
 *.tfstate.*
-*.tfvars
-!terraform.tfvars.example
-tfplan
+*.tfstate.backup
 crash.log
 crash.*.log
+
+# Local Execution Plans (May contain sensitive interpolated secrets)
+tfplan
+tfplan.*
+*.plan
+
+# Local Provider / Module Cache
+.terraform/
+# NOTE: .terraform.lock.hcl IS COMMITTED (Industrial Standard for Dependency Pinning)
+
+# Sensitive Variable Files
+*.tfvars
+*.tfvars.json
+*.auto.tfvars
+*.auto.tfvars.json
+!terraform.tfvars.example
+
+# Local Overrides
 override.tf
 override.tf.json
 *_override.tf
 *_override.tf.json
 
-# OS files
+# CLI configuration files
+.terraformrc
+terraform.rc
+
+# Temporary & Editor files
 .DS_Store
 Thumbs.db
-
-# IDE files
-.vscode/
 .idea/
+.vscode/
 *.swp
 *.swo
 *~
-
-# Temporary files
 *.tmp
 *.bak
 *.log
+
+# Sensitive Key / Credential Files
+*.pem
+*.key
+credentials.csv

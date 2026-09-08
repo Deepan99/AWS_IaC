@@ -1,0 +1,30 @@
+# ==============================================================================
+# Automated Dependency & Security Updates via Dependabot
+# ==============================================================================
+version: 2
+updates:
+  # 1. Automated updates for Terraform Provider plugins
+  - package-ecosystem: "terraform"
+    directory: "/terraform"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "06:00"
+      timezone: "Asia/Kolkata"
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: "chore(terraform)"
+      include: "scope"
+
+  # 2. Automated updates for GitHub Actions versions
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "06:00"
+      timezone: "Asia/Kolkata"
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: "chore(ci)"
+      include: "scope"

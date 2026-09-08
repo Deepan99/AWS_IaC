@@ -1,0 +1,75 @@
+name: "Terraform Cloud Drift Detection"
+
+on:
+  schedule:
+    # Runs every weekday at 08:00 AM IST (02:30 AM UTC)
+    - cron: '30 2 * * 1-5'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  drift-check:
+    name: "Check Cloud Infrastructure Drift"
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: terraform
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: '1.5.7'
+
+      - name: Configure AWS Credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ secrets.AWS_REGION || 'ap-south-1' }}
+
+      - name: Terraform Init
+        run: terraform init
+
+      - name: Terraform Drift Plan
+        id: drift
+        run: |
+          terraform plan -detailed-exitcode -no-color -out=driftplan || exit_code=$?
+          echo "exit_code=$exit_code" >> $GITHUB_OUTPUT
+          if [ "$exit_code" -eq 2 ]; then
+            echo "DRIFT_DETECTED=true" >> $GITHUB_ENV
+            terraform show -no-color driftplan > drift.txt
+          else
+            echo "DRIFT_DETECTED=false" >> $GITHUB_ENV
+          fi
+
+      - name: Create Alert Issue on Drift
+        if: env.DRIFT_DETECTED == 'true'
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            const fs = require('fs');
+            const driftText = fs.readFileSync('terraform/drift.txt', 'utf8');
+            const body = `### ⚠️ Cloud Infrastructure Drift Detected!
+            
+            Terraform detected differences between your AWS cloud state and the Git repository.
+
+            \`\`\`terraform
+            ${driftText.substring(0, 50000)}
+            \`\`\`
+
+            **Action Required:** Re-apply the configuration or update your IaC code to reconcile state.`;
+
+            github.rest.issues.create({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              title: '🚨 Alert: Cloud Drift Detected in ap-south-1',
+              body: body,
+              labels: ['drift-detected', 'infrastructure']
+            });
