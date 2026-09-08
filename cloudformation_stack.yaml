@@ -1,0 +1,461 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: >
+  AWS Zero-Cost Hub-and-Spoke Enterprise Architecture Stack:
+  Includes Hub VPC, Spoke 1 Prod VPC, Spoke 2 Dev VPC, VPC Peering,
+  Hub NGINX Ingress Proxy, Squid Egress Firewall, Spoke 1 App, and Route 53 Private DNS.
+
+Parameters:
+  KeyName:
+    Description: Name of an existing EC2 KeyPair to enable SSH access
+    Type: AWS::EC2::KeyPair::KeyName
+    Default: hub-vpc-key
+  InstanceType:
+    Description: EC2 instance type for Hub and Spoke instances
+    Type: String
+    Default: t3.micro
+  LatestAmiId:
+    Description: Amazon Linux 2023 AMI ID
+    Type: AWS::SSM::Parameter::Value<AWS::EC2::Image::Id>
+    Default: /aws/service/ami-amazon-linux-latest/al2023-ami-kernel-default-x86_64
+
+Resources:
+  # ============================================================================
+  # 1. HUB VPC (10.0.0.0/16)
+  # ============================================================================
+  HubVPC:
+    Type: AWS::EC2::VPC
+    Properties:
+      CidrBlock: 10.0.0.0/16
+      EnableDnsSupport: true
+      EnableDnsHostnames: true
+      Tags:
+        - Key: Name
+          Value: hub-VPC
+
+  HubIGW:
+    Type: AWS::EC2::InternetGateway
+    Properties:
+      Tags:
+        - Key: Name
+          Value: Hub-IGW
+
+  AttachHubIGW:
+    Type: AWS::EC2::VPCGatewayAttachment
+    Properties:
+      VpcId: !Ref HubVPC
+      InternetGatewayId: !Ref HubIGW
+
+  HubPublicSubnet:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref HubVPC
+      CidrBlock: 10.0.1.0/24
+      MapPublicIpOnLaunch: true
+      AvailabilityZone: !Select [0, !GetAZs '']
+      Tags:
+        - Key: Name
+          Value: Hub-Public-Subnet-1
+
+  HubPublicRouteTable:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref HubVPC
+      Tags:
+        - Key: Name
+          Value: Hub-Public-RT
+
+  HubPublicDefaultRoute:
+    Type: AWS::EC2::Route
+    DependsOn: AttachHubIGW
+    Properties:
+      RouteTableId: !Ref HubPublicRouteTable
+      DestinationCidrBlock: 0.0.0.0/0
+      GatewayId: !Ref HubIGW
+
+  HubPublicSubnetAssoc:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref HubPublicSubnet
+      RouteTableId: !Ref HubPublicRouteTable
+
+  # ============================================================================
+  # 2. SPOKE 1 PROD VPC (10.1.0.0/16)
+  # ============================================================================
+  Spoke1VPC:
+    Type: AWS::EC2::VPC
+    Properties:
+      CidrBlock: 10.1.0.0/16
+      EnableDnsSupport: true
+      EnableDnsHostnames: true
+      Tags:
+        - Key: Name
+          Value: Spoke1-Prod-VPC
+
+  Spoke1PrivateSubnet:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref Spoke1VPC
+      CidrBlock: 10.1.1.0/24
+      MapPublicIpOnLaunch: false
+      AvailabilityZone: !Select [0, !GetAZs '']
+      Tags:
+        - Key: Name
+          Value: Spoke1-Private-Subnet-1
+
+  Spoke1PrivateRouteTable:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref Spoke1VPC
+      Tags:
+        - Key: Name
+          Value: Spoke1-Prod-RT
+
+  Spoke1PrivateSubnetAssoc:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref Spoke1PrivateSubnet
+      RouteTableId: !Ref Spoke1PrivateRouteTable
+
+  # ============================================================================
+  # 3. SPOKE 2 DEV VPC (10.2.0.0/16)
+  # ============================================================================
+  Spoke2VPC:
+    Type: AWS::EC2::VPC
+    Properties:
+      CidrBlock: 10.2.0.0/16
+      EnableDnsSupport: true
+      EnableDnsHostnames: true
+      Tags:
+        - Key: Name
+          Value: Spoke2-Dev-VPC
+
+  Spoke2PrivateSubnet:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref Spoke2VPC
+      CidrBlock: 10.2.1.0/24
+      MapPublicIpOnLaunch: false
+      AvailabilityZone: !Select [0, !GetAZs '']
+      Tags:
+        - Key: Name
+          Value: Spoke2-Private-Subnet-1
+
+  Spoke2PrivateRouteTable:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref Spoke2VPC
+      Tags:
+        - Key: Name
+          Value: Spoke2-Dev-RT
+
+  Spoke2PrivateSubnetAssoc:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref Spoke2PrivateSubnet
+      RouteTableId: !Ref Spoke2PrivateRouteTable
+
+  # ============================================================================
+  # 4. VPC PEERING CONNECTIONS & ROUTES
+  # ============================================================================
+  HubToSpoke1Peering:
+    Type: AWS::EC2::VPCPeeringConnection
+    Properties:
+      VpcId: !Ref HubVPC
+      PeerVpcId: !Ref Spoke1VPC
+      Tags:
+        - Key: Name
+          Value: Hub-to-Spoke1-Peering
+
+  HubToSpoke2Peering:
+    Type: AWS::EC2::VPCPeeringConnection
+    Properties:
+      VpcId: !Ref HubVPC
+      PeerVpcId: !Ref Spoke2VPC
+      Tags:
+        - Key: Name
+          Value: Hub-to-Spoke2-Peering
+
+  HubRouteToSpoke1:
+    Type: AWS::EC2::Route
+    Properties:
+      RouteTableId: !Ref HubPublicRouteTable
+      DestinationCidrBlock: 10.1.0.0/16
+      VpcPeeringConnectionId: !Ref HubToSpoke1Peering
+
+  HubRouteToSpoke2:
+    Type: AWS::EC2::Route
+    Properties:
+      RouteTableId: !Ref HubPublicRouteTable
+      DestinationCidrBlock: 10.2.0.0/16
+      VpcPeeringConnectionId: !Ref HubToSpoke2Peering
+
+  Spoke1RouteToHub:
+    Type: AWS::EC2::Route
+    Properties:
+      RouteTableId: !Ref Spoke1PrivateRouteTable
+      DestinationCidrBlock: 10.0.0.0/16
+      VpcPeeringConnectionId: !Ref HubToSpoke1Peering
+
+  Spoke2RouteToHub:
+    Type: AWS::EC2::Route
+    Properties:
+      RouteTableId: !Ref Spoke2PrivateRouteTable
+      DestinationCidrBlock: 10.0.0.0/16
+      VpcPeeringConnectionId: !Ref HubToSpoke2Peering
+
+  # ============================================================================
+  # 5. SECURITY GROUPS
+  # ============================================================================
+  HubSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Allow HTTP, HTTPS, SSH, and Squid Egress Proxy from Spokes
+      VpcId: !Ref HubVPC
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 22
+          ToPort: 22
+          CidrIp: 0.0.0.0/0
+        - IpProtocol: tcp
+          FromPort: 80
+          ToPort: 80
+          CidrIp: 0.0.0.0/0
+        - IpProtocol: tcp
+          FromPort: 443
+          ToPort: 443
+          CidrIp: 0.0.0.0/0
+        - IpProtocol: tcp
+          FromPort: 3128
+          ToPort: 3128
+          CidrIp: 10.0.0.0/8
+      Tags:
+        - Key: Name
+          Value: Hub-NAT-Router-SG
+
+  Spoke1SecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Allow all traffic exclusively from Hub VPC
+      VpcId: !Ref Spoke1VPC
+      SecurityGroupIngress:
+        - IpProtocol: -1
+          CidrIp: 10.0.0.0/16
+      Tags:
+        - Key: Name
+          Value: Spoke1-Prod-SG
+
+  # ============================================================================
+  # 6. ROUTE 53 PRIVATE HOSTED ZONE
+  # ============================================================================
+  Route53PrivateZone:
+    Type: AWS::Route53::HostedZone
+    Properties:
+      Name: corp.internal
+      HostedZoneConfig:
+        Comment: Multi-VPC Private Hosted Zone
+      VPCs:
+        - VPCId: !Ref HubVPC
+          VPCRegion: !Ref 'AWS::Region'
+        - VPCId: !Ref Spoke1VPC
+          VPCRegion: !Ref 'AWS::Region'
+        - VPCId: !Ref Spoke2VPC
+          VPCRegion: !Ref 'AWS::Region'
+
+  Spoke1DnsRecord:
+    Type: AWS::Route53::RecordSet
+    Properties:
+      HostedZoneId: !Ref Route53PrivateZone
+      Name: spoke1.corp.internal.
+      Type: A
+      TTL: '60'
+      ResourceRecords:
+        - !GetAtt Spoke1AppInstance.PrivateIp
+
+  HubDnsRecord:
+    Type: AWS::Route53::RecordSet
+    Properties:
+      HostedZoneId: !Ref Route53PrivateZone
+      Name: hub.corp.internal.
+      Type: A
+      TTL: '60'
+      ResourceRecords:
+        - !GetAtt HubRouterInstance.PrivateIp
+
+  ProxyDnsRecord:
+    Type: AWS::Route53::RecordSet
+    Properties:
+      HostedZoneId: !Ref Route53PrivateZone
+      Name: proxy.corp.internal.
+      Type: A
+      TTL: '60'
+      ResourceRecords:
+        - !GetAtt HubRouterInstance.PrivateIp
+
+  # ============================================================================
+  # 7. EC2 INSTANCES
+  # ============================================================================
+  HubRouterInstance:
+    Type: AWS::EC2::Instance
+    Properties:
+      ImageId: !Ref LatestAmiId
+      InstanceType: !Ref InstanceType
+      KeyName: !Ref KeyName
+      SubnetId: !Ref HubPublicSubnet
+      SecurityGroupIds:
+        - !Ref HubSecurityGroup
+      SourceDestCheck: false
+      Tags:
+        - Key: Name
+          Value: Hub-Central-NAT-Router
+      UserData:
+        Fn::Base64: |
+          #!/bin/bash
+          dnf update -y
+          dnf install -y nginx squid iptables-services
+          echo "net.ipv4.ip_forward=1" >> /etc/sysctl.conf
+          sysctl -p
+          iptables -t nat -A POSTROUTING -o ens5 -j MASQUERADE
+          iptables -I INPUT -p tcp --dport 80 -j ACCEPT
+          iptables -I INPUT -p tcp --dport 443 -j ACCEPT
+          iptables -I INPUT -p tcp --dport 3128 -j ACCEPT
+          iptables-save > /etc/sysconfig/iptables
+
+          cat << 'NGINX_EOF' > /etc/nginx/nginx.conf
+          user nginx;
+          worker_processes auto;
+          events { worker_connections 1024; }
+          http {
+              resolver 10.0.0.2 169.254.169.253 valid=10s;
+              upstream spoke1_backend {
+                  server spoke1.corp.internal:80 max_fails=3 fail_timeout=10s;
+                  keepalive 32;
+              }
+              server {
+                  listen 80 default_server;
+                  server_name _;
+                  location / {
+                      proxy_pass http://spoke1_backend;
+                      proxy_http_version 1.1;
+                      proxy_set_header Connection "";
+                      proxy_set_header Host $host;
+                      proxy_set_header X-Real-IP $remote_addr;
+                      proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+                  }
+              }
+          }
+          NGINX_EOF
+          systemctl enable --now nginx
+
+          cat << 'SQUID_DOMAINS' > /etc/squid/allowed_domains.txt
+          .amazonlinux.com
+          .aws.amazon.com
+          .amazonaws.com
+          .github.com
+          .githubusercontent.com
+          .pypi.org
+          .pythonhosted.org
+          SQUID_DOMAINS
+
+          cat << 'SQUID_CONF' > /etc/squid/squid.conf
+          acl spoke_networks src 10.0.0.0/8
+          acl allowed_domains dstdomain "/etc/squid/allowed_domains.txt"
+          acl SSL_ports port 443
+          acl Safe_ports port 80
+          acl Safe_ports port 443
+          acl CONNECT method CONNECT
+          http_access deny !Safe_ports
+          http_access deny CONNECT !SSL_ports
+          http_access allow localhost
+          http_access allow spoke_networks allowed_domains
+          http_access deny all
+          http_port 3128
+          forwarded_for delete
+          request_header_access Via deny all
+          SQUID_CONF
+          systemctl enable --now squid
+
+  Spoke1AppInstance:
+    Type: AWS::EC2::Instance
+    Properties:
+      ImageId: !Ref LatestAmiId
+      InstanceType: !Ref InstanceType
+      KeyName: !Ref KeyName
+      SubnetId: !Ref Spoke1PrivateSubnet
+      SecurityGroupIds:
+        - !Ref Spoke1SecurityGroup
+      Tags:
+        - Key: Name
+          Value: Spoke1-Prod-App
+      UserData:
+        Fn::Base64: |
+          #!/bin/bash
+          mkdir -p /var/www/app
+          cat << 'HTML_EOF' > /var/www/app/index.html
+          <!DOCTYPE html>
+          <html>
+          <head>
+            <title>Spoke 1 Production Server</title>
+            <style>
+              body { font-family: sans-serif; background: #0f172a; color: #f8fafc; text-align: center; padding: 50px 20px; }
+              .card { background: #1e293b; border-radius: 12px; padding: 40px; max-width: 650px; margin: 0 auto; box-shadow: 0 10px 25px rgba(0,0,0,0.5); }
+              h1 { color: #38bdf8; }
+              .info { background: #0f172a; border-radius: 8px; padding: 15px; margin: 20px 0; text-align: left; font-family: monospace; }
+            </style>
+          </head>
+          <body>
+            <div class="card">
+              <h1>🎉 Hello from Private Spoke 1!</h1>
+              <p>100% Private Workload routed via Zero-Cost Hub Ingress Proxy & Route 53 DNS.</p>
+              <div class="info">
+                • Hostname: spoke1.corp.internal<br>
+                • Subnet: Spoke1-Private-Subnet-1 (10.1.1.0/24)<br>
+                • Egress Proxy: proxy.corp.internal:3128
+              </div>
+            </div>
+          </body>
+          </html>
+          HTML_EOF
+
+          cat << 'SVC_EOF' > /etc/systemd/system/spoke-app.service
+          [Unit]
+          Description=Spoke 1 Private App Web Server
+          After=network.target
+          [Service]
+          WorkingDirectory=/var/www/app
+          ExecStart=/usr/bin/python3 -m http.server 80
+          Restart=always
+          [Install]
+          WantedBy=multi-user.target
+          SVC_EOF
+
+          systemctl daemon-reload
+          systemctl enable --now spoke-app
+
+Outputs:
+  HubPublicIP:
+    Description: Public IP of Hub NAT / Ingress Router
+    Value: !GetAtt HubRouterInstance.PublicIp
+  HubPrivateIP:
+    Description: Private IP of Hub NAT / Ingress Router
+    Value: !GetAtt HubRouterInstance.PrivateIp
+  Spoke1PrivateIP:
+    Description: Private IP of Spoke 1 Production App
+    Value: !GetAtt Spoke1AppInstance.PrivateIp
+  IngressProxyURL:
+    Description: Web Ingress URL
+    Value: !Sub "http://${HubRouterInstance.PublicIp}"
+  InternalDnsURL:
+    Description: Internal Route 53 URL
+    Value: "http://spoke1.corp.internal"
+  HubVPCId:
+    Description: Hub VPC ID
+    Value: !Ref HubVPC
+  Spoke1VPCId:
+    Description: Spoke 1 VPC ID
+    Value: !Ref Spoke1VPC
+  Spoke2VPCId:
+    Description: Spoke 2 VPC ID
+    Value: !Ref Spoke2VPC
+  Route53HostedZoneId:
+    Description: Route 53 Private Hosted Zone ID
+    Value: !Ref Route53PrivateZone

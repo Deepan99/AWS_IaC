@@ -1,0 +1,167 @@
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "EC2NetworkingFullAccess",
+      "Effect": "Allow",
+      "Action": [
+        "ec2:*Vpc*",
+        "ec2:*Subnet*",
+        "ec2:*Route*",
+        "ec2:*InternetGateway*",
+        "ec2:*NatGateway*",
+        "ec2:*CustomerGateway*",
+        "ec2:*VpnGateway*",
+        "ec2:*VpnConnection*",
+        "ec2:*TransitGateway*",
+        "ec2:*SecurityGroup*",
+        "ec2:*NetworkAcl*",
+        "ec2:*NetworkInterface*",
+        "ec2:*DhcpOptions*",
+        "ec2:*Address*",
+        "ec2:*PrefixList*",
+        "ec2:*Ipam*",
+        "ec2:*TrafficMirror*",
+        "ec2:*ClientVpn*",
+        "ec2:*CarrierGateway*",
+        "ec2:*LocalGateway*",
+        "ec2:*CoipPool*",
+        "ec2:*NetworkPerformanceMetricSubscription*",
+        "ec2:*VerifiedAccess*",
+        "ec2:*FlowLog*",
+        "ec2:*NetworkInsights*",
+        "tiros:*",
+        "ec2:DescribeAvailabilityZones",
+        "ec2:DescribeAccountAttributes",
+        "ec2:DescribeRegions",
+        "ec2:DescribeTags",
+        "ec2:CreateTags",
+        "ec2:DeleteTags",
+        "ec2:DescribeInstances",
+        "ec2:DescribeInstanceStatus",
+        "ec2:DescribeInstanceAttribute",
+        "ec2:DescribeInstanceTypes",
+        "ec2:DescribeKeyPairs",
+        "ec2:DescribeImages",
+        "ec2:DescribeVolumes",
+        "ec2:DescribeSnapshots"
+      ],
+      "Resource": "*"
+    },
+    {
+      "Sid": "ElasticLoadBalancingFullAccess",
+      "Effect": "Allow",
+      "Action": [
+        "elasticloadbalancing:*"
+      ],
+      "Resource": "*"
+    },
+    {
+      "Sid": "Route53AndResolverFullAccess",
+      "Effect": "Allow",
+      "Action": [
+        "route53:*",
+        "route53domains:*",
+        "route53resolver:*",
+        "route53-recovery-control-config:*",
+        "route53-recovery-readiness:*",
+        "arc-zonal-shift:*"
+      ],
+      "Resource": "*"
+    },
+    {
+      "Sid": "DirectConnectFullAccess",
+      "Effect": "Allow",
+      "Action": [
+        "directconnect:*"
+      ],
+      "Resource": "*"
+    },
+    {
+      "Sid": "NetworkFirewallAndCloudWANFullAccess",
+      "Effect": "Allow",
+      "Action": [
+        "network-firewall:*",
+        "networkmanager:*",
+        "vpc-lattice:*"
+      ],
+      "Resource": "*"
+    },
+    {
+      "Sid": "ResourceAccessManagerFullAccess",
+      "Effect": "Allow",
+      "Action": [
+        "ram:*"
+      ],
+      "Resource": "*"
+    },
+    {
+      "Sid": "CloudWatchLogsAndMetricsAccess",
+      "Effect": "Allow",
+      "Action": [
+        "cloudwatch:Describe*",
+        "cloudwatch:Get*",
+        "cloudwatch:List*",
+        "cloudwatch:PutMetricAlarm",
+        "cloudwatch:DeleteAlarms",
+        "logs:CreateLogGroup",
+        "logs:CreateLogStream",
+        "logs:PutLogEvents",
+        "logs:DescribeLogGroups",
+        "logs:DescribeLogStreams",
+        "logs:GetLogEvents",
+        "logs:FilterLogEvents",
+        "logs:PutRetentionPolicy",
+        "logs:DeleteLogGroup",
+        "logs:DeleteLogStream"
+      ],
+      "Resource": "*"
+    },
+    {
+      "Sid": "CloudTrailAndConfigReadAccess",
+      "Effect": "Allow",
+      "Action": [
+        "cloudtrail:LookupEvents",
+        "cloudtrail:GetTrailStatus",
+        "cloudtrail:DescribeTrails",
+        "config:Get*",
+        "config:Describe*",
+        "config:List*"
+      ],
+      "Resource": "*"
+    },
+    {
+      "Sid": "CertificateAndServiceRoleReadAccess",
+      "Effect": "Allow",
+      "Action": [
+        "acm:ListCertificates",
+        "acm:DescribeCertificate",
+        "acm:GetCertificate",
+        "iam:ListRoles",
+        "iam:GetRole",
+        "iam:ListAccountAliases",
+        "iam:ListUsers",
+        "iam:ListGroups",
+        "iam:ListPolicies"
+      ],
+      "Resource": "*"
+    },
+    {
+      "Sid": "IamPassRoleForNetworkingServices",
+      "Effect": "Allow",
+      "Action": "iam:PassRole",
+      "Resource": "arn:aws:iam::*:role/*",
+      "Condition": {
+        "StringEquals": {
+          "iam:PassedToService": [
+            "vpc-flow-logs.amazonaws.com",
+            "elasticloadbalancing.amazonaws.com",
+            "route53resolver.amazonaws.com",
+            "network-firewall.amazonaws.com",
+            "transitgateway.amazonaws.com"
+          ]
+        }
+      }
+    }
+  ]
+}
