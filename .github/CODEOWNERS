@@ -1,0 +1,14 @@
+# ==============================================================================
+# Enterprise CODEOWNERS Configuration
+# ==============================================================================
+
+# Global owner for all repository files
+* @Deepan99
+
+# Infrastructure as Code (Terraform)
+/terraform/ @Deepan99
+/cloudformation_stack.yaml @Deepan99
+
+# CI/CD Workflows and Security
+/.github/workflows/ @Deepan99
+/iam-network-admin-policy.json @Deepan99
