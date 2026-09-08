@@ -1,41 +1,60 @@
 # AWS Zero-Cost Hub-and-Spoke Enterprise Network
 
-A production-ready Infrastructure as Code (IaC) project for deploying a zero-cost hub-and-spoke network architecture on AWS. This project replaces expensive AWS services (ALB, NAT Gateway, Network Firewall, Transit Gateway) with open-source alternatives (NGINX, Squid, VPC Peering).
+A production-ready, highly available Infrastructure as Code (IaC) project deploying an enterprise **Zero-Cost Hub-and-Spoke Network Architecture** on AWS. This architecture replaces **~$380+/month ($4,552/year)** in paid AWS services (Application Load Balancer, NAT Gateway, AWS Network Firewall, and Transit Gateway) using hardened open-source solutions (NGINX, Squid, Linux iptables, VPC Peering, Route 53, and AWS Systems Manager).
 
 ---
 
 ## 🏗️ Architecture Overview
 
-```
-┌────────────────────────────────────────────────────────┐
-│    🌐 Route 53 Private Hosted Zone: "corp.internal"    │
-│       • spoke1.corp.internal ➔ 10.1.1.124              │
-│       • hub.corp.internal    ➔ 10.0.1.11               │
-│       • proxy.corp.internal  ➔ 10.0.1.11               │
-└───────────────┬──────────────────────┬─────────────────┘
-                │                      │
-    Associated   │                      │ Associated
-                ▼                      ▼
+```text
+                                       ┌────────────────────────────────────────────────────────┐
+                                       │    🌐 Route 53 Private Hosted Zone: "corp.internal"    │
+                                       │       • node1.prod.corp.internal ➔ 10.1.1.160 (Node A) │
+                                       │       • node2.prod.corp.internal ➔ 10.1.1.188 (Node B) │
+                                       │       • spoke2.corp.internal     ➔ 10.2.1.164 (Dev)    │
+                                       │       • hub.corp.internal        ➔ 10.0.1.52 (Hub)     │
+                                       │       • proxy.corp.internal      ➔ 10.0.1.52 (Squid)   │
+                                       └───────────────┬──────────────────────┬─────────────────┘
+                                                       │                      │
+                                          Associated   │                      │ Associated
+                                                       ▼                      ▼
 ┌──────────────────────────────────────────────────────────┐      ┌──────────────────────────────────────────────────────────┐
-│ Hub VPC (10.0.0.0/16) - vpc-01b4ac4e0a26e39d8            │      │ Spoke 1 Prod VPC (10.1.0.0/16) - vpc-02edc6d0e8625e9e0   │
+│ Hub VPC (10.0.0.0/16)                                    │      │ Spoke 1 Prod VPC (10.1.0.0/16) - Air-Gapped Workload     │
 │                                                          │      │                                                          │
-│  [🏢 Hub-Central-NAT-Router]                             │      │  [🔒 Spoke1-Prod-App]                                   │
-│     • NGINX Ingress Proxy (Port 80)                      │      │     • Private IP: 10.1.1.124 (Strictly Private)          │
-│     • Squid Egress Firewall (Port 3128)                  │      │     • Python Web App (Port 80)                          │
-│     • Public IP: Auto-assigned                           │      └────────────────────────────▲─────────────────────────────┘
+│  [🏢 Central Hub Router & Ingress Load Balancer]         │      │  [🔒 Spoke1-Prod-App-A]       [🔒 Spoke1-Prod-App-B]     │
+│     • Public IP: 13.207.69.181                           │      │     • IP: 10.1.1.160             • IP: 10.1.1.188        │
+│     • Private IP: 10.0.1.52                              │      │     • Role: HA Node A            • Role: HA Node B       │
+│     • L7 Ingress Gateway Portal (Port 80)                │      │     • High Availability Round-Robin Load Balanced        │
+│     • Squid Domain Egress Firewall (Port 3128)           │      │     • Passive Health Check & Auto-Failover (< 5s)        │
+│     • Zero-Trust SSM Management (0 Open SSH Ports)       │      └────────────────────────────▲─────────────────────────────┘
 └────────────────────────────┬─────────────────────────────┘                                   │
                              │                                                                 │
-                             └─────────────────────── VPC Peering Link ────────────────────────┘
+                             ├─────────────────────── VPC Peering Link ────────────────────────┘
+                             │                           (Latency: < 0.20 ms)
+                             │
+                             ▼
+┌──────────────────────────────────────────────────────────┐
+│ Spoke 2 Dev VPC (10.2.0.0/16) - Air-Gapped Sandbox       │
+│                                                          │
+│  [🧪 Spoke2-Dev-App]                                     │
+│     • Private IP: 10.2.1.164                             │
+│     • Ingress: Meditated exclusively via Hub /dev/ route │
+│     • Lateral Movement to Prod (10.1.0.0/16): BLOCKED 🚫 │
+└──────────────────────────────────────────────────────────┘
 ```
 
-### Key Features
+### 🌟 Enterprise Milestones & Completed Extensions
 
-- **Zero-Cost Alternatives**: Replaces ~$370/month AWS services with open-source solutions
-- **Central Ingress Proxy**: NGINX reverse proxy for load balancing (replaces ALB)
-- **Egress Firewall**: Squid proxy with domain whitelisting (replaces Network Firewall)
-- **Private DNS**: Route 53 Private Hosted Zone for service discovery
-- **VPC Peering**: Direct VPC-to-VPC connectivity (replaces Transit Gateway)
-- **Dual IaC Support**: Both CloudFormation and Terraform implementations
+1. **Central Ingress Proxy ($0 ALB Alternative)**: Hub NGINX reverse proxy with dynamic runtime AWS resolver.
+2. **Central Egress Firewall ($0 AWS Network Firewall Alternative)**: Squid forward proxy on Port 3128 with domain whitelist (`.amazonlinux.com`, `.github.com`, `.pypi.org`).
+3. **Multi-VPC Service Discovery**: Route 53 Private Hosted Zone `corp.internal` associated across Hub, Spoke 1, and Spoke 2.
+4. **Centralized VPC Flow Logs & Telemetry**: CloudWatch Log Group `/aws/vpc/hub-spoke-flow-logs` capturing packet flows with `VPCFlowLogsDeliveryRole`.
+5. **Multi-Environment Layer-7 Ingress Routing**: Path-based gateway (`/` Gateway Portal, `/prod/` Production App, `/dev/` Development App).
+6. **Zero-Trust Management**: AWS Systems Manager (SSM) Session Manager browser terminal; **100% Inbound Port 22 (SSH) revoked** across all Security Groups.
+7. **High Availability (HA) Backend & Auto-Failover**: Dual redundant backend nodes in Spoke 1 with NGINX active-active round-robin and auto-failover.
+8. **Automated Threat Detection Alarms**: CloudWatch Alarms monitoring suspicious `REJECT` packet volume across VPC perimeters.
+9. **Curated Threat Hunting Suite**: Pre-built CloudWatch Logs Insights queries for top rejected IPs and cross-VPC lateral movement detection.
+10. **Enterprise GitOps CI/CD**: Fully automated GitHub Actions workflow with S3 remote state locking, DynamoDB, Dependabot, and drift detection.
 
 ---
 
@@ -44,30 +63,33 @@ A production-ready Infrastructure as Code (IaC) project for deploying a zero-cos
 ```text
 .
 ├── .github/
-│   └── workflows/
-│       └── terraform-deploy.yml    # GitHub Actions CI/CD workflow
+│   ├── workflows/
+│   │   ├── terraform-deploy.yml    # GitOps CI/CD pipeline (speculative plan + apply on merge)
+│   │   └── drift-detection.yml     # Daily cloud configuration drift scanner
+│   ├── CODEOWNERS                  # Repository code ownership policy
+│   ├── PULL_REQUEST_TEMPLATE.md    # Enterprise PR review template
+│   └── dependabot.yml              # Automated security dependency scanner
 ├── terraform/
 │   ├── scripts/
-│   │   ├── hub_bootstrap.sh        # Hub instance bootstrap script
-│   │   └── spoke1_bootstrap.sh     # Spoke 1 instance bootstrap script
-│   ├── backend.tf.example          # Remote state configuration example
-│   ├── compute_hub.tf              # Hub EC2 instance
-│   ├── compute_spokes.tf           # Spoke EC2 instances
+│   │   ├── hub_bootstrap.sh        # Hub NGINX HA Load Balancer & Squid bootstrap
+│   │   └── spoke1_bootstrap.sh     # Spoke 1 Python App & systemd bootstrap
+│   ├── backend.tf                  # Remote S3 state storage & DynamoDB lock table
+│   ├── compute_hub.tf              # Hub NAT Router & Ingress Gateway EC2
+│   ├── compute_spokes.tf           # Spoke 1 HA Cluster (Node A + B) & Spoke 2 Dev EC2
 │   ├── outputs.tf                  # Output variables
-│   ├── route53.tf                  # Route 53 Private Hosted Zone
-│   ├── security_groups.tf          # Security groups
+│   ├── route53.tf                  # Route 53 Private Hosted Zone & A-records
+│   ├── security_groups.tf          # Least-privilege Zero-Trust security groups
 │   ├── terraform.tfvars            # Environment variables
 │   ├── variables.tf                # Input variable declarations
 │   ├── versions.tf                 # Terraform version constraints
 │   ├── vpc_hub.tf                  # Hub VPC configuration
 │   ├── vpc_peering.tf              # VPC peering connections
 │   └── vpc_spokes.tf               # Spoke VPCs configuration
-├── AWS_HUB_SPOKE_EXTENSIONS_RUNBOOK.md   # Architecture & operations guide
-├── CONSOLE_MANUAL_GUIDE.md               # Manual IAM setup guide
-├── SECURITY_BEST_PRACTICES.md            # Security recommendations
-├── cloudformation_stack.yaml             # CloudFormation template
-├── iam-network-admin-policy.json         # IAM policy for network admin
-└── terraform_main.tf                     # Single-file Terraform version
+├── AWS_HUB_SPOKE_EXTENSIONS_RUNBOOK.md   # Complete technical runbook & DR procedures
+├── CONSOLE_MANUAL_GUIDE.md               # Manual AWS Console guide
+├── SECURITY_BEST_PRACTICES.md            # Zero-Trust security baseline
+├── cloudformation_stack.yaml             # CloudFormation template equivalent
+└── iam-network-admin-policy.json         # Least-privilege IAM policy
 ```
 
 ---
