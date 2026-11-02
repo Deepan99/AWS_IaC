@@ -1,223 +1,223 @@
-name: "Terraform Enterprise CI/CD Pipeline"
+# name: "Terraform Enterprise CI/CD Pipeline"
 
-on:
-  pull_request:
-    types: [opened, synchronize, reopened, closed]
-    branches: [master, main]
-    paths:
-      - 'terraform/**'
-      - '.github/workflows/terraform-deploy.yml'
-  workflow_dispatch:
-    inputs:
-      terraform_action:
-        description: 'Terraform Action to Execute'
-        required: true
-        default: 'plan'
-        type: choice
-        options:
-          - plan
-          - apply
-          - destroy
+# on:
+#   pull_request:
+#     types: [opened, synchronize, reopened, closed]
+#     branches: [master, main]
+#     paths:
+#       - 'terraform/**'
+#       - '.github/workflows/terraform-deploy.yml'
+#   workflow_dispatch:
+#     inputs:
+#       terraform_action:
+#         description: 'Terraform Action to Execute'
+#         required: true
+#         default: 'plan'
+#         type: choice
+#         options:
+#           - plan
+#           - apply
+#           - destroy
 
-permissions:
-  contents: write
-  pull-requests: write
+# permissions:
+#   contents: write
+#   pull-requests: write
 
-jobs:
-  # ============================================================================
-  # 1. LINT & VALIDATION (Runs on ALL PRs, including Dependabot, NO AWS secrets needed)
-  # ============================================================================
-  lint-and-validate:
-    name: "Terraform Lint & Syntax Check"
-    runs-on: ubuntu-latest
-    if: github.event_name == 'pull_request' && github.event.action != 'closed'
-    defaults:
-      run:
-        working-directory: terraform
-    steps:
-      - name: Checkout Code
-        uses: actions/checkout@v4
+# jobs:
+#   # ============================================================================
+#   # 1. LINT & VALIDATION (Runs on ALL PRs, including Dependabot, NO AWS secrets needed)
+#   # ============================================================================
+#   lint-and-validate:
+#     name: "Terraform Lint & Syntax Check"
+#     runs-on: ubuntu-latest
+#     if: github.event_name == 'pull_request' && github.event.action != 'closed'
+#     defaults:
+#       run:
+#         working-directory: terraform
+#     steps:
+#       - name: Checkout Code
+#         uses: actions/checkout@v4
 
-      - name: Setup Terraform
-        uses: hashicorp/setup-terraform@v3
-        with:
-          terraform_version: '1.5.7'
+#       - name: Setup Terraform
+#         uses: hashicorp/setup-terraform@v3
+#         with:
+#           terraform_version: '1.5.7'
 
-      - name: Terraform Format Check
-        run: terraform fmt -check
+#       - name: Terraform Format Check
+#         run: terraform fmt -check
 
-      - name: Terraform Validate (Offline Mode)
-        run: |
-          terraform init -backend=false
-          terraform validate
+#       - name: Terraform Validate (Offline Mode)
+#         run: |
+#           terraform init -backend=false
+#           terraform validate
 
-      - name: Security Vulnerability Scan (tfsec)
-        uses: aquasecurity/tfsec-action@v1.0.3
-        with:
-          working_directory: terraform
-          soft_fail: true
+#       - name: Security Vulnerability Scan (tfsec)
+#         uses: aquasecurity/tfsec-action@v1.0.3
+#         with:
+#           working_directory: terraform
+#           soft_fail: true
 
-  # ============================================================================
-  # 2. SPECULATIVE PLAN (Runs on Human PRs where AWS Secrets are accessible)
-  # ============================================================================
-  terraform-plan:
-    name: "Terraform Plan (AWS S3 Backend)"
-    needs: [lint-and-validate]
-    runs-on: ubuntu-latest
-    if: github.actor != 'dependabot[bot]' && ((github.event_name == 'pull_request' && github.event.action != 'closed') || (github.event_name == 'workflow_dispatch' && github.event.inputs.terraform_action == 'plan'))
-    defaults:
-      run:
-        working-directory: terraform
-    steps:
-      - name: Checkout Code
-        uses: actions/checkout@v4
+#   # ============================================================================
+#   # 2. SPECULATIVE PLAN (Runs on Human PRs where AWS Secrets are accessible)
+#   # ============================================================================
+#   terraform-plan:
+#     name: "Terraform Plan (AWS S3 Backend)"
+#     needs: [lint-and-validate]
+#     runs-on: ubuntu-latest
+#     if: github.actor != 'dependabot[bot]' && ((github.event_name == 'pull_request' && github.event.action != 'closed') || (github.event_name == 'workflow_dispatch' && github.event.inputs.terraform_action == 'plan'))
+#     defaults:
+#       run:
+#         working-directory: terraform
+#     steps:
+#       - name: Checkout Code
+#         uses: actions/checkout@v4
 
-      - name: Setup Terraform
-        uses: hashicorp/setup-terraform@v3
-        with:
-          terraform_version: '1.5.7'
+#       - name: Setup Terraform
+#         uses: hashicorp/setup-terraform@v3
+#         with:
+#           terraform_version: '1.5.7'
 
-      - name: Configure AWS Credentials
-        uses: aws-actions/configure-aws-credentials@v4
-        with:
-          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
-          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-          aws-region: ${{ secrets.AWS_REGION || 'ap-south-1' }}
+#       - name: Configure AWS Credentials
+#         uses: aws-actions/configure-aws-credentials@v4
+#         with:
+#           aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+#           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+#           aws-region: ${{ secrets.AWS_REGION || 'ap-south-1' }}
 
-      - name: Terraform Init (S3 Remote Backend)
-        run: terraform init
+#       - name: Terraform Init (S3 Remote Backend)
+#         run: terraform init
 
-      - name: Terraform Plan
-        id: plan
-        run: terraform plan -no-color -out=tfplan
+#       - name: Terraform Plan
+#         id: plan
+#         run: terraform plan -no-color -out=tfplan
 
-      - name: Post Plan Comment on PR
-        uses: actions/github-script@v7
-        if: github.event_name == 'pull_request'
-        with:
-          github-token: ${{ secrets.GITHUB_TOKEN }}
-          script: |
-            let terraformShow = '';
-            try {
-              const execSync = require('child_process').execSync;
-              terraformShow = execSync('cd terraform && terraform show -no-color tfplan').toString();
-              if (terraformShow.length > 60000) {
-                terraformShow = terraformShow.substring(0, 60000) + '\n\n... [Output truncated for GitHub limit]';
-              }
-            } catch (e) {
-              terraformShow = 'Plan generated successfully.';
-            }
+#       - name: Post Plan Comment on PR
+#         uses: actions/github-script@v7
+#         if: github.event_name == 'pull_request'
+#         with:
+#           github-token: ${{ secrets.GITHUB_TOKEN }}
+#           script: |
+#             let terraformShow = '';
+#             try {
+#               const execSync = require('child_process').execSync;
+#               terraformShow = execSync('cd terraform && terraform show -no-color tfplan').toString();
+#               if (terraformShow.length > 60000) {
+#                 terraformShow = terraformShow.substring(0, 60000) + '\n\n... [Output truncated for GitHub limit]';
+#               }
+#             } catch (e) {
+#               terraformShow = 'Plan generated successfully.';
+#             }
 
-            const body = `### 📖 Terraform Speculative Plan Output
-            <details><summary>Click to Expand Plan Details</summary>
+#             const body = `### 📖 Terraform Speculative Plan Output
+#             <details><summary>Click to Expand Plan Details</summary>
 
-            \`\`\`terraform
-            ${terraformShow}
-            \`\`\`
+#             \`\`\`terraform
+#             ${terraformShow}
+#             \`\`\`
 
-            </details>
+#             </details>
 
-            *Pushed by @${{ github.actor }} | Event: \`${{ github.event_name }}\` | Remote Backend: \`S3 + DynamoDB\`*`;
+#             *Pushed by @${{ github.actor }} | Event: \`${{ github.event_name }}\` | Remote Backend: \`S3 + DynamoDB\`*`;
 
-            github.rest.issues.createComment({
-              issue_number: context.issue.number,
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              body: body
-            });
+#             github.rest.issues.createComment({
+#               issue_number: context.issue.number,
+#               owner: context.repo.owner,
+#               repo: context.repo.repo,
+#               body: body
+#             });
 
-  # ============================================================================
-  # 3. TERRAFORM APPLY (On PR Merge to Master or Manual Dispatch)
-  # ============================================================================
-  terraform-apply:
-    name: "Terraform Apply (Deploy)"
-    runs-on: ubuntu-latest
-    if: (github.event_name == 'pull_request' && github.event.action == 'closed' && github.event.pull_request.merged == true) || (github.event_name == 'workflow_dispatch' && github.event.inputs.terraform_action == 'apply')
-    defaults:
-      run:
-        working-directory: terraform
-    steps:
-      - name: Checkout Code
-        uses: actions/checkout@v4
+#   # ============================================================================
+#   # 3. TERRAFORM APPLY (On PR Merge to Master or Manual Dispatch)
+#   # ============================================================================
+#   terraform-apply:
+#     name: "Terraform Apply (Deploy)"
+#     runs-on: ubuntu-latest
+#     if: (github.event_name == 'pull_request' && github.event.action == 'closed' && github.event.pull_request.merged == true) || (github.event_name == 'workflow_dispatch' && github.event.inputs.terraform_action == 'apply')
+#     defaults:
+#       run:
+#         working-directory: terraform
+#     steps:
+#       - name: Checkout Code
+#         uses: actions/checkout@v4
 
-      - name: Setup Terraform
-        uses: hashicorp/setup-terraform@v3
-        with:
-          terraform_version: '1.5.7'
+#       - name: Setup Terraform
+#         uses: hashicorp/setup-terraform@v3
+#         with:
+#           terraform_version: '1.5.7'
 
-      - name: Configure AWS Credentials
-        uses: aws-actions/configure-aws-credentials@v4
-        with:
-          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
-          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-          aws-region: ${{ secrets.AWS_REGION || 'ap-south-1' }}
+#       - name: Configure AWS Credentials
+#         uses: aws-actions/configure-aws-credentials@v4
+#         with:
+#           aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+#           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+#           aws-region: ${{ secrets.AWS_REGION || 'ap-south-1' }}
 
-      - name: Terraform Init
-        run: terraform init
+#       - name: Terraform Init
+#         run: terraform init
 
-      - name: Terraform Apply
-        run: terraform apply -auto-approve
+#       - name: Terraform Apply
+#         run: terraform apply -auto-approve
 
-      - name: Capture Outputs
-        id: tf_outputs
-        run: |
-          terraform output -json > outputs.json
-          cat outputs.json
+#       - name: Capture Outputs
+#         id: tf_outputs
+#         run: |
+#           terraform output -json > outputs.json
+#           cat outputs.json
 
-      - name: Post Apply Outputs on PR
-        uses: actions/github-script@v7
-        if: github.event_name == 'pull_request'
-        with:
-          github-token: ${{ secrets.GITHUB_TOKEN }}
-          script: |
-            const fs = require('fs');
-            let outputText = '### 🎉 Terraform Apply Completed Successfully! ✅\n\n';
-            try {
-              const raw = fs.readFileSync('terraform/outputs.json', 'utf8');
-              const data = JSON.parse(raw);
-              outputText += '| Output Key | Value |\n| :--- | :--- |\n';
-              for (const [key, obj] of Object.entries(data)) {
-                outputText += `| **${key}** | \`${obj.value}\` |\n`;
-              }
-            } catch (e) {
-              outputText += 'Infrastructure deployed successfully.';
-            }
+#       - name: Post Apply Outputs on PR
+#         uses: actions/github-script@v7
+#         if: github.event_name == 'pull_request'
+#         with:
+#           github-token: ${{ secrets.GITHUB_TOKEN }}
+#           script: |
+#             const fs = require('fs');
+#             let outputText = '### 🎉 Terraform Apply Completed Successfully! ✅\n\n';
+#             try {
+#               const raw = fs.readFileSync('terraform/outputs.json', 'utf8');
+#               const data = JSON.parse(raw);
+#               outputText += '| Output Key | Value |\n| :--- | :--- |\n';
+#               for (const [key, obj] of Object.entries(data)) {
+#                 outputText += `| **${key}** | \`${obj.value}\` |\n`;
+#               }
+#             } catch (e) {
+#               outputText += 'Infrastructure deployed successfully.';
+#             }
 
-            github.rest.issues.createComment({
-              issue_number: context.issue.number,
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              body: outputText
-            });
+#             github.rest.issues.createComment({
+#               issue_number: context.issue.number,
+#               owner: context.repo.owner,
+#               repo: context.repo.repo,
+#               body: outputText
+#             });
 
-  # ============================================================================
-  # 4. TERRAFORM DESTROY (On Manual Dispatch)
-  # ============================================================================
-  terraform-destroy:
-    name: "Terraform Destroy (Manual Teardown)"
-    runs-on: ubuntu-latest
-    if: github.event_name == 'workflow_dispatch' && github.event.inputs.terraform_action == 'destroy'
-    defaults:
-      run:
-        working-directory: terraform
-    steps:
-      - name: Checkout Code
-        uses: actions/checkout@v4
+#   # ============================================================================
+#   # 4. TERRAFORM DESTROY (On Manual Dispatch)
+#   # ============================================================================
+#   terraform-destroy:
+#     name: "Terraform Destroy (Manual Teardown)"
+#     runs-on: ubuntu-latest
+#     if: github.event_name == 'workflow_dispatch' && github.event.inputs.terraform_action == 'destroy'
+#     defaults:
+#       run:
+#         working-directory: terraform
+#     steps:
+#       - name: Checkout Code
+#         uses: actions/checkout@v4
 
-      - name: Setup Terraform
-        uses: hashicorp/setup-terraform@v3
-        with:
-          terraform_version: '1.5.7'
+#       - name: Setup Terraform
+#         uses: hashicorp/setup-terraform@v3
+#         with:
+#           terraform_version: '1.5.7'
 
-      - name: Configure AWS Credentials
-        uses: aws-actions/configure-aws-credentials@v4
-        with:
-          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
-          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-          aws-region: ${{ secrets.AWS_REGION || 'ap-south-1' }}
+#       - name: Configure AWS Credentials
+#         uses: aws-actions/configure-aws-credentials@v4
+#         with:
+#           aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+#           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+#           aws-region: ${{ secrets.AWS_REGION || 'ap-south-1' }}
 
-      - name: Terraform Init
-        run: terraform init
+#       - name: Terraform Init
+#         run: terraform init
 
-      - name: Terraform Destroy
-        run: terraform destroy -auto-approve
+#       - name: Terraform Destroy
+#         run: terraform destroy -auto-approve
